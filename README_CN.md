@@ -72,56 +72,96 @@ bash build.sh
 
 ### 2. 准备数据文件
 
-#### 必需数据
+#### 🚀 自动下载（推荐）
 
-AlphaFold2 模型参数（~3.5GB）：
+工具可以在需要时**自动下载所需数据**。只需指定缓存目录：
 
 ```bash
-mkdir -p /data/protein/alphafold/params
-cd /data/protein/alphafold/params
+# 创建缓存目录
+mkdir -p /data/alphafold
 
-# 下载预训练参数
+# 运行预测 - 缺失的数据将自动下载
+python predict.py \
+    --cache /data/alphafold \
+    --sequence "MKTAYIAKQRQISFVKSHFSRQLE..." \
+    --a3m_path input.a3m \
+    --output_dir output
+```
+
+**自动下载内容：**
+- ✅ **模型参数** (~3.5GB) - 始终检查，缺失时自动下载
+- ✅ **PDB70 数据库** (~56GB) - 仅在指定 `--use_templates` 时下载
+- ✅ **mmCIF 文件** (~200GB) - 仅在指定 `--use_templates` 时下载（需要用户确认）
+
+**下载后的缓存目录结构：**
+```
+/data/alphafold/
+├── params/                           # 模型参数（自动下载）
+│   ├── params_model_1.npz
+│   ├── params_model_1_ptm.npz
+│   ├── params_model_2.npz
+│   ├── params_model_2_ptm.npz
+│   ├── params_model_3.npz
+│   ├── params_model_3_ptm.npz
+│   ├── params_model_4.npz
+│   ├── params_model_4_ptm.npz
+│   ├── params_model_5.npz
+│   └── params_model_5_ptm.npz
+├── pdb70/                            # 模板数据库（使用 --use_templates 时自动下载）
+│   └── pdb70*
+└── pdb_mmcif/                        # mmCIF 文件（使用 --use_templates 时自动下载）
+    ├── mmcif_files/
+    └── obsolete.dat
+```
+
+**跳过自动下载：**
+```bash
+# 如果想手动管理下载
+python predict.py --cache /data/alphafold --no_download ...
+```
+
+#### 📦 手动下载（可选）
+
+如果您更喜欢手动设置或需要离线安装：
+
+**模型参数** (~3.5GB)：
+```bash
+bash scripts/download_alphafold_params.sh /data/alphafold
+```
+
+**PDB70 数据库** (~56GB，用于模板搜索)：
+```bash
+bash scripts/download_pdb70.sh /data/alphafold
+```
+
+**mmCIF 文件** (~200GB，用于模板搜索)：
+```bash
+bash scripts/download_pdb_mmcif.sh /data/alphafold
+```
+
+或手动下载：
+
+```bash
+# 模型参数
+mkdir -p /data/alphafold/params
+cd /data/alphafold/params
 wget https://storage.googleapis.com/alphafold/alphafold_params_2022-12-06.tar
 tar -xvf alphafold_params_2022-12-06.tar
-```
 
-目录结构：
-```
-/data/protein/alphafold/
-└── params/
-    ├── params_model_1.npz
-    ├── params_model_1_ptm.npz
-    ├── params_model_2.npz
-    ├── params_model_2_ptm.npz
-    ├── params_model_3.npz
-    ├── params_model_3_ptm.npz
-    ├── params_model_4.npz
-    ├── params_model_4_ptm.npz
-    ├── params_model_5.npz
-    └── params_model_5_ptm.npz
-```
-
-#### 可选数据（用于模板搜索）
-
-**PDB70 数据库**（~56GB）：
-```bash
-mkdir -p /data/protein/pdb70
-cd /data/protein/pdb70
+# PDB70（可选，用于模板）
+mkdir -p /data/alphafold/pdb70
+cd /data/alphafold/pdb70
 wget http://wwwuser.gwdg.de/~compbiol/data/hhsuite/databases/hhsuite_dbs/old-releases/pdb70_from_mmcif_200401.tar.gz
 tar -xzf pdb70_from_mmcif_200401.tar.gz
-```
 
-**mmCIF 结构文件**（~200GB）：
-```bash
-mkdir -p /data/protein/pdb_mmcif/mmcif_files
+# mmCIF 文件（可选，用于模板）
+mkdir -p /data/alphafold/pdb_mmcif/mmcif_files
 rsync -rlpt -v -z --delete --port=33444 \
     rsync.rcsb.org::ftp_data/structures/divided/mmCIF/ \
-    /data/protein/pdb_mmcif/mmcif_files
-```
+    /data/alphafold/pdb_mmcif/mmcif_files
 
-**Obsolete PDB 列表**：
-```bash
-wget -P /data/protein/pdb_mmcif \
+# Obsolete PDB 列表
+wget -P /data/alphafold/pdb_mmcif \
     ftp://ftp.wwpdb.org/pub/pdb/data/status/obsolete.dat
 ```
 
@@ -159,7 +199,7 @@ mmseqs easy-search input.fasta /path/to/uniclust30 output.m8 tmp --format-mode 3
 
 ```bash
 # 数据路径
-DATA_ROOT="/data/protein"              # AlphaFold 数据库根目录
+CACHE_DIR="/data/alphafold"            # AlphaFold 数据缓存目录（params, pdb70, pdb_mmcif）
 WORK_DIR="."                           # 工作目录（包含输入文件）
 
 # 输入文件
@@ -190,7 +230,7 @@ bash run.sh
 ```bash
 docker run --rm \
     --gpus "device=0" \
-    -v /data/protein/alphafold:/data:ro \
+    -v /data/alphafold:/data/alphafold \
     -v $(pwd):/work \
     -w /app \
     af2-predict \
@@ -200,15 +240,17 @@ docker run --rm \
         --output_dir /work/output \
         --target_name my_protein \
         --model_name model_1_ptm \
-        --params_dir /data/alphafold
+        --cache /data/alphafold
 ```
+
+**注意**：如果模型参数缺失，将自动下载到缓存目录。
 
 #### 多模型预测（自动排名）
 
 ```bash
 docker run --rm \
     --gpus "device=0" \
-    -v /data/protein/alphafold:/data:ro \
+    -v /data/alphafold:/data/alphafold \
     -v $(pwd):/work \
     -w /app \
     af2-predict \
@@ -218,7 +260,7 @@ docker run --rm \
         --output_dir /work/output \
         --target_name my_protein \
         --model_name model_1_ptm,model_2_ptm,model_3_ptm,model_4_ptm,model_5_ptm \
-        --params_dir /data/alphafold
+        --cache /data/alphafold
 ```
 
 **多模型预测特性**：
@@ -232,7 +274,7 @@ docker run --rm \
 ```bash
 docker run --rm \
     --gpus "device=0" \
-    -v /data/protein/alphafold:/data:ro \
+    -v /data/alphafold:/data/alphafold \
     -v $(pwd):/work \
     -w /app \
     af2-predict \
@@ -242,11 +284,33 @@ docker run --rm \
         --output_dir /work/output \
         --target_name my_protein \
         --model_name model_1_ptm \
-        --params_dir /data/alphafold \
-        --use_templates \
-        --pdb70_database_path /data/pdb70/pdb70 \
-        --template_mmcif_dir /data/pdb_mmcif/mmcif_files \
-        --obsolete_pdbs_path /data/pdb_mmcif/obsolete.dat
+        --cache /data/alphafold \
+        --use_templates
+```
+
+**注意**：指定 `--use_templates` 时：
+- 如果 PDB70 和 mmCIF 数据库缺失，将自动下载（mmCIF 因体积大 ~200GB 需要用户确认）
+- 模板搜索路径从缓存派生：`${CACHE}/pdb70/pdb70` 和 `${CACHE}/pdb_mmcif/mmcif_files`
+
+#### 跳过自动下载
+
+如果想阻止自动下载（例如在生产环境中）：
+
+```bash
+docker run --rm \
+    --gpus "device=0" \
+    -v /data/alphafold:/data/alphafold \
+    -v $(pwd):/work \
+    -w /app \
+    af2-predict \
+    python predict.py \
+        --sequence "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRVGDGTQDNL..." \
+        --a3m_path /work/input.a3m \
+        --output_dir /work/output \
+        --target_name my_protein \
+        --model_name model_1_ptm \
+        --cache /data/alphafold \
+        --no_download
 ```
 
 #### 快速预测（跳过 AMBER 优化）
@@ -254,7 +318,7 @@ docker run --rm \
 ```bash
 docker run --rm \
     --gpus "device=0" \
-    -v /data/protein/alphafold:/data:ro \
+    -v /data/alphafold:/data/alphafold \
     -v $(pwd):/work \
     -w /app \
     af2-predict \
@@ -264,7 +328,7 @@ docker run --rm \
         --output_dir /work/output \
         --target_name my_protein \
         --model_name model_1_ptm \
-        --params_dir /data/alphafold \
+        --cache /data/alphafold \
         --no_relax
 ```
 
@@ -411,8 +475,17 @@ output/
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
 | `--model_name` | 模型名称（可用逗号分隔多个） | `model_1_ptm` |
-| `--params_dir` | 模型参数目录 | `/data/protein/alphafold` |
+| `--cache` | **AlphaFold 所有数据的根缓存目录** | - |
+| `--params_dir` | 模型参数目录（已弃用，请使用 `--cache`） | - |
 | `--target_name` | 目标蛋白名称 | `target` |
+
+**缓存目录结构**：
+
+当您指定 `--cache /data/alphafold` 时，工具期望/创建：
+- **模型参数**：`/data/alphafold/params/`
+- **PDB70**：`/data/alphafold/pdb70/pdb70`
+- **mmCIF 文件**：`/data/alphafold/pdb_mmcif/mmcif_files/`
+- **Obsolete 列表**：`/data/alphafold/pdb_mmcif/obsolete.dat`
 
 **可用模型**：
 - `model_1`, `model_2`, `model_3`, `model_4`, `model_5` - 标准模型
@@ -428,10 +501,15 @@ output/
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
 | `--use_templates` | 启用模板搜索 | `False` |
-| `--pdb70_database_path` | PDB70 数据库路径 | - |
-| `--template_mmcif_dir` | mmCIF 文件目录 | - |
-| `--obsolete_pdbs_path` | 过期 PDB 列表 | - |
 | `--max_template_date` | 最大模板发布日期 | `2022-12-31` |
+| `--pdb70_database_path` | PDB70 数据库路径（可选，未指定时从 `--cache` 派生） | - |
+| `--template_mmcif_dir` | mmCIF 文件目录（可选，未指定时从 `--cache` 派生） | - |
+| `--obsolete_pdbs_path` | 过期 PDB 列表（可选，未指定时从 `--cache` 派生） | - |
+
+**注意**：使用 `--cache` 时，通常无需指定单独的数据库路径，它们会自动派生：
+- `--pdb70_database_path` → `${cache}/pdb70/pdb70`
+- `--template_mmcif_dir` → `${cache}/pdb_mmcif/mmcif_files`
+- `--obsolete_pdbs_path` → `${cache}/pdb_mmcif/obsolete.dat`
 
 ### 预测参数
 
@@ -448,12 +526,45 @@ output/
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
 | `--no_relax` | 跳过 AMBER 优化 | `False` |
+| `--no_download` | 跳过自动数据下载 | `False` |
 | `--save_features` | 保存处理后的特征 | `False` |
 | `--save_all_outputs` | 保存所有预测输出 | `False` |
 
 ---
 
 ## 常见问题
+
+### 数据下载相关
+
+#### 如何禁用自动下载？
+
+使用 `--no_download` 标志：
+
+```bash
+python predict.py --cache /data/alphafold --no_download ...
+```
+
+#### 文件会下载到哪里？
+
+所有数据下载到 `--cache` 指定的缓存目录：
+- 模型参数：`${cache}/params/`
+- PDB70：`${cache}/pdb70/`
+- mmCIF：`${cache}/pdb_mmcif/mmcif_files/`
+
+#### 可以使用不同位置的现有数据库吗？
+
+可以，您可以覆盖单独的路径：
+
+```bash
+python predict.py \
+    --cache /data/alphafold \
+    --pdb70_database_path /custom/path/pdb70 \
+    --template_mmcif_dir /custom/path/mmcif
+```
+
+#### 如果不使用模板，需要下载模板数据库吗？
+
+不需要。模板数据库（PDB70 和 mmCIF）仅在您指定 `--use_templates` 时下载。
 
 ### GPU 内存不足
 

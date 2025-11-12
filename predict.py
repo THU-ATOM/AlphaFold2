@@ -34,8 +34,168 @@ from alphafold.model import features, config, data, model
 from alphafold.relax import relax
 from alphafold.common import residue_constants, protein
 import dataclasses
+import subprocess
+import shutil
 
 logging.set_verbosity(logging.INFO)
+
+
+def check_and_download_data(
+    params_dir: str,
+    use_templates: bool = False,
+    pdb70_database_path: str = None,
+    template_mmcif_dir: str = None,
+) -> None:
+    """
+    Check if required data files exist and trigger download if missing.
+    
+    Args:
+        params_dir: Directory containing AlphaFold model parameters
+        use_templates: Whether template search is enabled
+        pdb70_database_path: Path to PDB70 database
+        template_mmcif_dir: Directory containing mmCIF files
+    """
+    script_dir = Path(__file__).parent / "scripts"
+    
+    # Check AlphaFold parameters
+    params_path = Path(params_dir) / "params"
+    required_params = [
+        "params_model_1_ptm.npz",
+        "params_model_2_ptm.npz", 
+        "params_model_3_ptm.npz",
+        "params_model_4_ptm.npz",
+        "params_model_5_ptm.npz",
+    ]
+    
+    missing_params = [p for p in required_params if not (params_path / p).exists()]
+    
+    if missing_params:
+        logging.warning("=" * 60)
+        logging.warning("AlphaFold parameters not found!")
+        logging.warning(f"Missing files: {', '.join(missing_params)}")
+        logging.warning("=" * 60)
+        
+        # Check if aria2c is available
+        if not shutil.which("aria2c"):
+            logging.error("aria2c is required for downloading. Please install it:")
+            logging.error("  Ubuntu/Debian: sudo apt install aria2")
+            logging.error("  macOS: brew install aria2")
+            sys.exit(1)
+        
+        download_script = script_dir / "download_alphafold_params.sh"
+        if not download_script.exists():
+            logging.error(f"Download script not found: {download_script}")
+            sys.exit(1)
+        
+        logging.info("Triggering automatic download of AlphaFold parameters...")
+        logging.info(f"Download directory: {params_dir}")
+        logging.info("This may take some time (approximately 5.3GB)...")
+        
+        try:
+            subprocess.run(
+                ["bash", str(download_script), params_dir],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
+            )
+            logging.info("✓ AlphaFold parameters downloaded successfully!")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to download AlphaFold parameters: {e}")
+            logging.error(e.output)
+            sys.exit(1)
+    else:
+        logging.info("✓ AlphaFold parameters found")
+    
+    # Check template databases if template search is enabled
+    if use_templates:
+        logging.info("Template search is enabled, checking template databases...")
+        
+        # Check PDB70
+        if pdb70_database_path:
+            pdb70_files = [
+                f"{pdb70_database_path}_a3m.ffdata",
+                f"{pdb70_database_path}_a3m.ffindex",
+                f"{pdb70_database_path}_hhm.ffdata",
+                f"{pdb70_database_path}_hhm.ffindex",
+            ]
+            
+            missing_pdb70 = [f for f in pdb70_files if not Path(f).exists()]
+            
+            if missing_pdb70:
+                logging.warning("=" * 60)
+                logging.warning("PDB70 database not found!")
+                logging.warning("=" * 60)
+                
+                download_script = script_dir / "download_pdb70.sh"
+                if not download_script.exists():
+                    logging.error(f"Download script not found: {download_script}")
+                    sys.exit(1)
+                
+                # Extract base directory from pdb70_database_path
+                pdb70_base_dir = str(Path(pdb70_database_path).parent.parent)
+                
+                logging.info("Triggering automatic download of PDB70 database...")
+                logging.info(f"Download directory: {pdb70_base_dir}")
+                logging.info("This may take some time (approximately 56GB)...")
+                
+                try:
+                    subprocess.run(
+                        ["bash", str(download_script), pdb70_base_dir],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True
+                    )
+                    logging.info("✓ PDB70 database downloaded successfully!")
+                except subprocess.CalledProcessError as e:
+                    logging.error(f"Failed to download PDB70: {e}")
+                    logging.error(e.output)
+                    sys.exit(1)
+            else:
+                logging.info("✓ PDB70 database found")
+        
+        # Check mmCIF files
+        if template_mmcif_dir:
+            mmcif_path = Path(template_mmcif_dir)
+            if not mmcif_path.exists() or not any(mmcif_path.glob("*.cif")):
+                logging.warning("=" * 60)
+                logging.warning("PDB mmCIF database not found!")
+                logging.warning("=" * 60)
+                
+                download_script = script_dir / "download_pdb_mmcif.sh"
+                if not download_script.exists():
+                    logging.error(f"Download script not found: {download_script}")
+                    sys.exit(1)
+                
+                # Extract base directory
+                mmcif_base_dir = str(mmcif_path.parent.parent)
+                
+                logging.info("Triggering automatic download of PDB mmCIF database...")
+                logging.info(f"Download directory: {mmcif_base_dir}")
+                logging.info("This will take a LONG time (approximately 200GB)...")
+                logging.warning("Consider using --no_templates if you don't need template search!")
+                
+                user_input = input("Do you want to proceed with the download? (yes/no): ")
+                if user_input.lower() not in ['yes', 'y']:
+                    logging.info("Download cancelled. Exiting...")
+                    sys.exit(0)
+                
+                try:
+                    subprocess.run(
+                        ["bash", str(download_script), mmcif_base_dir],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True
+                    )
+                    logging.info("✓ PDB mmCIF database downloaded successfully!")
+                except subprocess.CalledProcessError as e:
+                    logging.error(f"Failed to download PDB mmCIF: {e}")
+                    logging.error(e.output)
+                    sys.exit(1)
+            else:
+                logging.info("✓ PDB mmCIF database found")
 
 
 def search_template(
@@ -623,19 +783,19 @@ def main():
     parser.add_argument(
         "--pdb70_database_path",
         type=str,
-        default="/data/protein/alphafold/pdb70/pdb70",
+        default="/data/alphafold/pdb70/pdb70",
         help="Path to PDB70 database for template search"
     )
     parser.add_argument(
         "--template_mmcif_dir",
         type=str,
-        default="/data/protein/alphafold/pdb_mmcif/mmcif_files",
+        default="/data/alphafold/pdb_mmcif/mmcif_files",
         help="Directory containing mmCIF files for templates"
     )
     parser.add_argument(
         "--obsolete_pdbs_path",
         type=str,
-        default="/data/protein/alphafold/pdb_mmcif/obsolete.dat",
+        default="/data/alphafold/pdb_mmcif/obsolete.dat",
         help="Path to obsolete PDB entries file"
     )
     parser.add_argument(
@@ -661,8 +821,19 @@ def main():
     parser.add_argument(
         "--params_dir",
         type=str,
-        default="/data/protein/alphafold",
-        help="Directory containing AlphaFold2 model parameters"
+        default="/data/alphafold",
+        help="(Deprecated) Directory containing AlphaFold2 model parameters. Prefer --cache"
+    )
+    parser.add_argument(
+        "--cache",
+        type=str,
+        default=None,
+        help="Single cache directory for all AlphaFold data (e.g. /data/alphafold).\nDerived subpaths: params=<cache>/params, pdb70=<cache>/pdb70, pdb_mmcif=<cache>/pdb_mmcif"
+    )
+    parser.add_argument(
+        "--no_download",
+        action="store_true",
+        help="If set, do not attempt to auto-download missing data (fail instead)"
     )
     
     # Prediction parameters
@@ -721,7 +892,42 @@ def main():
     )
     
     args = parser.parse_args()
-    
+
+    # Resolve cache directory and derive standard data paths.
+    # Priority: --cache if provided, else fall back to --params_dir for backward compatibility.
+    if args.cache:
+        cache_dir = Path(args.cache)
+    else:
+        cache_dir = Path(args.params_dir)
+
+    # Derived standard locations inside the cache
+    derived_params_dir = str(cache_dir)
+    derived_pdb70_db = str(cache_dir / "pdb70" / "pdb70")
+    derived_mmcif_dir = str(cache_dir / "pdb_mmcif" / "mmcif_files")
+    derived_obsolete = str(cache_dir / "pdb_mmcif" / "obsolete.dat")
+
+    # Override args to use derived paths (but keep original if explicitly provided)
+    # If user explicitly supplied params_dir/pdb70/template dirs, prefer those.
+    if not args.params_dir or args.params_dir == "/data/alphafold":
+        args.params_dir = derived_params_dir
+    if not args.pdb70_database_path or args.pdb70_database_path == "/data/alphafold/pdb70/pdb70":
+        args.pdb70_database_path = derived_pdb70_db
+    if not args.template_mmcif_dir or args.template_mmcif_dir == "/data/alphafold/pdb_mmcif/mmcif_files":
+        args.template_mmcif_dir = derived_mmcif_dir
+    if not args.obsolete_pdbs_path or args.obsolete_pdbs_path == "/data/alphafold/pdb_mmcif/obsolete.dat":
+        args.obsolete_pdbs_path = derived_obsolete
+
+    # Before any heavy processing, check and optionally download missing data.
+    if not args.no_download:
+        check_and_download_data(
+            params_dir=args.params_dir,
+            use_templates=args.use_templates,
+            pdb70_database_path=args.pdb70_database_path,
+            template_mmcif_dir=args.template_mmcif_dir,
+        )
+    else:
+        logging.info("--no_download set: skipping automatic data downloads. Ensure required data exists in cache.")
+
     # Create output directory with target_name subdirectory
     base_output_dir = Path(args.output_dir)
     target_name = args.target_name

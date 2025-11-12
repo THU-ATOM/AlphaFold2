@@ -72,56 +72,96 @@ bash build.sh
 
 ### 2. Prepare Data Files
 
-#### Required Data
+#### 🚀 Automatic Download (Recommended)
 
-AlphaFold2 model parameters (~3.5GB):
+The tool can **automatically download required data** when needed. Simply specify a cache directory:
 
 ```bash
-mkdir -p /data/protein/alphafold/params
-cd /data/protein/alphafold/params
+# Create cache directory
+mkdir -p /data/alphafold
 
-# Download pre-trained parameters
+# Run prediction - missing data will be downloaded automatically
+python predict.py \
+    --cache /data/alphafold \
+    --sequence "MKTAYIAKQRQISFVKSHFSRQLE..." \
+    --a3m_path input.a3m \
+    --output_dir output
+```
+
+**What gets downloaded automatically:**
+- ✅ **Model parameters** (~3.5GB) - always checked and downloaded if missing
+- ✅ **PDB70 database** (~56GB) - downloaded only when `--use_templates` is specified
+- ✅ **mmCIF files** (~200GB) - downloaded only when `--use_templates` is specified (requires user confirmation)
+
+**Cache directory structure after downloads:**
+```
+/data/alphafold/
+├── params/                           # Model parameters (auto-downloaded)
+│   ├── params_model_1.npz
+│   ├── params_model_1_ptm.npz
+│   ├── params_model_2.npz
+│   ├── params_model_2_ptm.npz
+│   ├── params_model_3.npz
+│   ├── params_model_3_ptm.npz
+│   ├── params_model_4.npz
+│   ├── params_model_4_ptm.npz
+│   ├── params_model_5.npz
+│   └── params_model_5_ptm.npz
+├── pdb70/                            # Template database (auto-downloaded with --use_templates)
+│   └── pdb70*
+└── pdb_mmcif/                        # mmCIF files (auto-downloaded with --use_templates)
+    ├── mmcif_files/
+    └── obsolete.dat
+```
+
+**Skip automatic downloads:**
+```bash
+# If you want to manage downloads manually
+python predict.py --cache /data/alphafold --no_download ...
+```
+
+#### 📦 Manual Download (Alternative)
+
+If you prefer manual setup or need offline installation:
+
+**Model Parameters** (~3.5GB):
+```bash
+bash scripts/download_alphafold_params.sh /data/alphafold
+```
+
+**PDB70 Database** (~56GB, for template search):
+```bash
+bash scripts/download_pdb70.sh /data/alphafold
+```
+
+**mmCIF Files** (~200GB, for template search):
+```bash
+bash scripts/download_pdb_mmcif.sh /data/alphafold
+```
+
+Or download manually:
+
+```bash
+# Model parameters
+mkdir -p /data/alphafold/params
+cd /data/alphafold/params
 wget https://storage.googleapis.com/alphafold/alphafold_params_2022-12-06.tar
 tar -xvf alphafold_params_2022-12-06.tar
-```
 
-Directory structure:
-```
-/data/protein/alphafold/
-└── params/
-    ├── params_model_1.npz
-    ├── params_model_1_ptm.npz
-    ├── params_model_2.npz
-    ├── params_model_2_ptm.npz
-    ├── params_model_3.npz
-    ├── params_model_3_ptm.npz
-    ├── params_model_4.npz
-    ├── params_model_4_ptm.npz
-    ├── params_model_5.npz
-    └── params_model_5_ptm.npz
-```
-
-#### Optional Data (for Template Search)
-
-**PDB70 Database** (~56GB):
-```bash
-mkdir -p /data/protein/pdb70
-cd /data/protein/pdb70
+# PDB70 (optional, for templates)
+mkdir -p /data/alphafold/pdb70
+cd /data/alphafold/pdb70
 wget http://wwwuser.gwdg.de/~compbiol/data/hhsuite/databases/hhsuite_dbs/old-releases/pdb70_from_mmcif_200401.tar.gz
 tar -xzf pdb70_from_mmcif_200401.tar.gz
-```
 
-**mmCIF Structure Files** (~200GB):
-```bash
-mkdir -p /data/protein/pdb_mmcif/mmcif_files
+# mmCIF files (optional, for templates)
+mkdir -p /data/alphafold/pdb_mmcif/mmcif_files
 rsync -rlpt -v -z --delete --port=33444 \
     rsync.rcsb.org::ftp_data/structures/divided/mmCIF/ \
-    /data/protein/pdb_mmcif/mmcif_files
-```
+    /data/alphafold/pdb_mmcif/mmcif_files
 
-**Obsolete PDB List**:
-```bash
-wget -P /data/protein/pdb_mmcif \
+# Obsolete PDB list
+wget -P /data/alphafold/pdb_mmcif \
     ftp://ftp.wwpdb.org/pub/pdb/data/status/obsolete.dat
 ```
 
@@ -159,7 +199,7 @@ mmseqs easy-search input.fasta /path/to/uniclust30 output.m8 tmp --format-mode 3
 
 ```bash
 # Data paths
-DATA_ROOT="/data/protein"              # AlphaFold database root directory
+CACHE_DIR="/data/alphafold"            # Cache directory for AlphaFold data (params, pdb70, pdb_mmcif)
 WORK_DIR="."                           # Working directory (contains input files)
 
 # Input files
@@ -190,7 +230,7 @@ bash run.sh
 ```bash
 docker run --rm \
     --gpus "device=0" \
-    -v /data/protein/alphafold:/data:ro \
+    -v /data/alphafold:/data/alphafold \
     -v $(pwd):/work \
     -w /app \
     af2-predict \
@@ -200,15 +240,17 @@ docker run --rm \
         --output_dir /work/output \
         --target_name my_protein \
         --model_name model_1_ptm \
-        --params_dir /data/alphafold
+        --cache /data/alphafold
 ```
+
+**Note**: If model parameters are missing, they will be automatically downloaded to the cache directory.
 
 #### Multi-Model Prediction (Auto-Ranking)
 
 ```bash
 docker run --rm \
     --gpus "device=0" \
-    -v /data/protein/alphafold:/data:ro \
+    -v /data/alphafold:/data/alphafold \
     -v $(pwd):/work \
     -w /app \
     af2-predict \
@@ -218,7 +260,7 @@ docker run --rm \
         --output_dir /work/output \
         --target_name my_protein \
         --model_name model_1_ptm,model_2_ptm,model_3_ptm,model_4_ptm,model_5_ptm \
-        --params_dir /data/alphafold
+        --cache /data/alphafold
 ```
 
 **Multi-Model Features**:
@@ -232,7 +274,7 @@ docker run --rm \
 ```bash
 docker run --rm \
     --gpus "device=0" \
-    -v /data/protein/alphafold:/data:ro \
+    -v /data/alphafold:/data/alphafold \
     -v $(pwd):/work \
     -w /app \
     af2-predict \
@@ -242,11 +284,33 @@ docker run --rm \
         --output_dir /work/output \
         --target_name my_protein \
         --model_name model_1_ptm \
-        --params_dir /data/alphafold \
-        --use_templates \
-        --pdb70_database_path /data/pdb70/pdb70 \
-        --template_mmcif_dir /data/pdb_mmcif/mmcif_files \
-        --obsolete_pdbs_path /data/pdb_mmcif/obsolete.dat
+        --cache /data/alphafold \
+        --use_templates
+```
+
+**Note**: When `--use_templates` is specified:
+- PDB70 and mmCIF databases will be automatically downloaded if missing (requires user confirmation for mmCIF due to large size ~200GB)
+- Template search paths are derived from cache: `${CACHE}/pdb70/pdb70` and `${CACHE}/pdb_mmcif/mmcif_files`
+
+#### Skip Automatic Downloads
+
+If you want to prevent automatic downloads (e.g., in production environments):
+
+```bash
+docker run --rm \
+    --gpus "device=0" \
+    -v /data/alphafold:/data/alphafold \
+    -v $(pwd):/work \
+    -w /app \
+    af2-predict \
+    python predict.py \
+        --sequence "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRVGDGTQDNL..." \
+        --a3m_path /work/input.a3m \
+        --output_dir /work/output \
+        --target_name my_protein \
+        --model_name model_1_ptm \
+        --cache /data/alphafold \
+        --no_download
 ```
 
 #### Fast Prediction (Skip AMBER Relaxation)
@@ -254,7 +318,7 @@ docker run --rm \
 ```bash
 docker run --rm \
     --gpus "device=0" \
-    -v /data/protein/alphafold:/data:ro \
+    -v /data/alphafold:/data/alphafold \
     -v $(pwd):/work \
     -w /app \
     af2-predict \
@@ -264,7 +328,7 @@ docker run --rm \
         --output_dir /work/output \
         --target_name my_protein \
         --model_name model_1_ptm \
-        --params_dir /data/alphafold \
+        --cache /data/alphafold \
         --no_relax
 ```
 
@@ -411,8 +475,17 @@ pLDDT curve comparison plot for all models to quickly identify low-confidence re
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `--model_name` | Model name(s) (comma-separated for multiple) | `model_1_ptm` |
-| `--params_dir` | Model parameters directory | `/data/protein/alphafold` |
+| `--cache` | **Root cache directory for all AlphaFold data** | - |
+| `--params_dir` | Model parameters directory (deprecated, use `--cache` instead) | - |
 | `--target_name` | Target protein name | `target` |
+
+**Cache Directory Structure**:
+
+When you specify `--cache /data/alphafold`, the tool expects/creates:
+- **Model params**: `/data/alphafold/params/`
+- **PDB70**: `/data/alphafold/pdb70/pdb70`
+- **mmCIF files**: `/data/alphafold/pdb_mmcif/mmcif_files/`
+- **Obsolete list**: `/data/alphafold/pdb_mmcif/obsolete.dat`
 
 **Available Models**:
 - `model_1`, `model_2`, `model_3`, `model_4`, `model_5` - Standard models
@@ -428,10 +501,15 @@ pLDDT curve comparison plot for all models to quickly identify low-confidence re
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `--use_templates` | Enable template search | `False` |
-| `--pdb70_database_path` | PDB70 database path | - |
-| `--template_mmcif_dir` | mmCIF files directory | - |
-| `--obsolete_pdbs_path` | Obsolete PDB list | - |
 | `--max_template_date` | Maximum template release date | `2022-12-31` |
+| `--pdb70_database_path` | PDB70 database path (optional, derived from `--cache` if not specified) | - |
+| `--template_mmcif_dir` | mmCIF files directory (optional, derived from `--cache` if not specified) | - |
+| `--obsolete_pdbs_path` | Obsolete PDB list (optional, derived from `--cache` if not specified) | - |
+
+**Note**: When using `--cache`, you typically don't need to specify individual database paths. They are automatically derived:
+- `--pdb70_database_path` → `${cache}/pdb70/pdb70`
+- `--template_mmcif_dir` → `${cache}/pdb_mmcif/mmcif_files`
+- `--obsolete_pdbs_path` → `${cache}/pdb_mmcif/obsolete.dat`
 
 ### Prediction Parameters
 
@@ -448,12 +526,45 @@ pLDDT curve comparison plot for all models to quickly identify low-confidence re
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `--no_relax` | Skip AMBER relaxation | `False` |
+| `--no_download` | Skip automatic data downloads | `False` |
 | `--save_features` | Save processed features | `False` |
 | `--save_all_outputs` | Save all prediction outputs | `False` |
 
 ---
 
 ## FAQ
+
+### Data Download Questions
+
+#### How do I disable automatic downloads?
+
+Use the `--no_download` flag:
+
+```bash
+python predict.py --cache /data/alphafold --no_download ...
+```
+
+#### Where are files downloaded to?
+
+All data is downloaded into the cache directory specified by `--cache`:
+- Model params: `${cache}/params/`
+- PDB70: `${cache}/pdb70/`
+- mmCIF: `${cache}/pdb_mmcif/mmcif_files/`
+
+#### Can I use existing databases in different locations?
+
+Yes, you can override individual paths:
+
+```bash
+python predict.py \
+    --cache /data/alphafold \
+    --pdb70_database_path /custom/path/pdb70 \
+    --template_mmcif_dir /custom/path/mmcif
+```
+
+#### Do I need to download template databases if I don't use templates?
+
+No. Template databases (PDB70 and mmCIF) are only downloaded when you specify `--use_templates`.
 
 ### GPU Out of Memory
 
