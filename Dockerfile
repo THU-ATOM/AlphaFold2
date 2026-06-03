@@ -99,9 +99,9 @@ COPY . /app
 
 # Install pip packages.
 RUN pip install --upgrade pip \
-    && pip install --no-cache-dir -r /app/requirements.txt \
-    && pip install  --no-cache-dir -U jax==0.2.25 jaxlib==0.1.69+cuda111 -f \
-      https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+    && pip install --no-cache-dir -U jax==0.2.25 jaxlib==0.1.69+cuda111 -f \
+      https://storage.googleapis.com/jax-releases/jax_cuda_releases.html \
+    && pip install --no-cache-dir -r /app/requirements.txt
 
 # Apply OpenMM patch.
 WORKDIR /usr/local/lib/python3.8/site-packages
